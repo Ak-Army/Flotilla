@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/go-mangos/mangos"
-	"github.com/go-mangos/mangos/protocol/rep"
-	"github.com/go-mangos/mangos/transport/tcp"
+	"nanomsg.org/go-mangos"
+	"nanomsg.org/go-mangos/protocol/rep"
+	"nanomsg.org/go-mangos/transport/tcp"
+
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/activemq"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/amqp"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/amqp/rabbitmq"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/beanstalkd"
+	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/centrifugo"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/kafka"
-	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/kestrel"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/nats"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/nsq"
-	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker/pubsub"
 )
 
 type daemon string
@@ -35,14 +35,14 @@ const (
 
 // These are supported message brokers.
 const (
-	NATS        = "nats"
-	Beanstalkd  = "beanstalkd"
-	Kafka       = "kafka"
-	Kestrel     = "kestrel"
-	ActiveMQ    = "activemq"
-	RabbitMQ    = "rabbitmq"
-	NSQ         = "nsq"
-	CloudPubSub = "pubsub"
+	NATS       = "nats"
+	NATSJS     = "natsjs"
+	Beanstalkd = "beanstalkd"
+	Kafka      = "kafka"
+	ActiveMQ   = "activemq"
+	RabbitMQ   = "rabbitmq"
+	NSQ        = "nsq"
+	CENTRIFUGO = "centrifugo"
 )
 
 type request struct {
@@ -220,23 +220,20 @@ func (d *Daemon) processBrokerStart(broker, host, port string) (interface{}, err
 	switch broker {
 	case NATS:
 		d.broker = &nats.Broker{}
+	case NATSJS:
+		d.broker = &nats.Broker{}
+	case CENTRIFUGO:
+		d.broker = &centrifugo.Broker{}
 	case Beanstalkd:
 		d.broker = &beanstalkd.Broker{}
 	case Kafka:
 		d.broker = &kafka.Broker{}
-	case Kestrel:
-		d.broker = &kestrel.Broker{}
 	case ActiveMQ:
 		d.broker = &activemq.Broker{}
 	case RabbitMQ:
 		d.broker = &rabbitmq.Broker{}
 	case NSQ:
 		d.broker = &nsq.Broker{}
-	case CloudPubSub:
-		d.broker = &pubsub.Broker{
-			ProjectID: d.config.GoogleCloudProjectID,
-			JSONKey:   d.config.GoogleCloudJSONKey,
-		}
 	default:
 		return "", fmt.Errorf("Invalid broker %s", broker)
 	}
@@ -348,24 +345,21 @@ func (d *Daemon) processTeardown() {
 func (d *Daemon) newPeer(broker, host string) (peer, error) {
 	switch broker {
 	case NATS:
-		return nats.NewPeer(host)
+		return nats.NewPeer(host, false)
+	case NATSJS:
+		return nats.NewPeer(host, true)
+	case CENTRIFUGO:
+		return centrifugo.NewPeer(host)
 	case Beanstalkd:
 		return beanstalkd.NewPeer(host)
 	case Kafka:
 		return kafka.NewPeer(host)
-	case Kestrel:
-		return kestrel.NewPeer(host)
 	case ActiveMQ:
 		return activemq.NewPeer(host)
 	case RabbitMQ:
 		return amqp.NewPeer(host)
 	case NSQ:
 		return nsq.NewPeer(host)
-	case CloudPubSub:
-		return pubsub.NewPeer(
-			d.config.GoogleCloudProjectID,
-			d.config.GoogleCloudJSONKey,
-		)
 	default:
 		return nil, fmt.Errorf("Invalid broker: %s", broker)
 	}

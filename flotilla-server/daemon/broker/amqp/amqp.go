@@ -2,6 +2,7 @@ package amqp
 
 import (
 	"github.com/streadway/amqp"
+
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker"
 )
 
@@ -34,11 +35,13 @@ func NewPeer(host string) (*Peer, error) {
 
 	queue, err := channel.QueueDeclare(
 		broker.GenerateName(), // name
-		false, // not durable
-		false, // delete when unused
-		true,  // exclusive
-		false, // no wait
-		nil,   // arguments
+		true,                  // not durable
+		false,                 // delete when unused
+		false,                 // exclusive
+		false,                 // no wait
+		amqp.Table{
+			"x-queue-type": "quorum",
+		}, // arguments
 	)
 	if err != nil {
 		return nil, err
@@ -47,7 +50,7 @@ func NewPeer(host string) (*Peer, error) {
 	err = channel.ExchangeDeclare(
 		exchange, // name
 		"fanout", // type
-		false,    //  not durable
+		true,     //  not durable
 		false,    // auto-deleted
 		false,    // internal
 		false,    // no wait
@@ -83,7 +86,7 @@ func (a *Peer) Subscribe() error {
 	a.inbound, err = a.channel.Consume(
 		a.queue.Name, // queue
 		"",           // consumer
-		true,         // auto ack
+		false,        // auto ack
 		false,        // exclusive
 		true,         // no local
 		false,        //  no wait
@@ -100,7 +103,7 @@ func (a *Peer) Subscribe() error {
 // before this. It returns an error if the receive failed.
 func (a *Peer) Recv() ([]byte, error) {
 	message := <-a.inbound
-	return message.Body, nil
+	return message.Body, message.Ack(true)
 }
 
 // Send returns a channel on which messages can be sent for publishing.

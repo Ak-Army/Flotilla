@@ -2,47 +2,60 @@ package nats
 
 import (
 	"fmt"
-	"time"
 
-	"github.com/nats-io/nats"
+	"github.com/nats-io/nats.go"
 )
 
 const (
-	subject = "test"
-
-	// Maximum bytes we will get behind before we start slowing down publishing.
-	maxBytesBehind = 1024 * 1024 // 1MB
-
-	// Maximum msgs we will get behind before we start slowing down publishing.
-	maxMsgsBehind = 65536 // 64k
-
-	// Time to delay publishing when we are behind.
-	delay = 1 * time.Millisecond
+	subject = "ORDERS"
 )
 
 // Peer implements the peer interface for NATS.
 type Peer struct {
 	conn     *nats.Conn
-	messages chan []byte
+	messages chan messages
 	send     chan []byte
 	errors   chan error
 	done     chan bool
+	js       nats.JetStreamContext
+	subs     *nats.Subscription
+}
+type messages struct {
+	message []byte
+	err     error
 }
 
 // NewPeer creates and returns a new Peer for communicating with NATS.
-func NewPeer(host string) (*Peer, error) {
+func NewPeer(host string, jetStream bool) (*Peer, error) {
 	conn, err := nats.Connect(fmt.Sprintf("nats://%s", host))
 	if err != nil {
 		return nil, err
 	}
 
+	var js nats.JetStreamContext
+	if jetStream {
+		js, err = conn.JetStream()
+		if err != nil {
+			return nil, err
+		}
+		// Create a Stream
+		_, err := js.AddStream(&nats.StreamConfig{
+			Name:     subject,
+			Subjects: []string{subject + ".all"},
+			Storage:  nats.FileStorage,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	// We want to be alerted if we get disconnected, this will be due to Slow
 	// Consumer.
 	conn.Opts.AllowReconnect = false
 
 	return &Peer{
 		conn:     conn,
-		messages: make(chan []byte, 10000),
+		js:       js,
+		messages: make(chan messages),
 		send:     make(chan []byte),
 		errors:   make(chan error, 1),
 		done:     make(chan bool),
@@ -51,8 +64,14 @@ func NewPeer(host string) (*Peer, error) {
 
 // Subscribe prepares the peer to consume messages.
 func (n *Peer) Subscribe() error {
-	n.conn.Subscribe(subject, func(message *nats.Msg) {
-		n.messages <- message.Data
+	if n.js != nil {
+		n.subs, _ = n.js.Subscribe(subject+".all", func(message *nats.Msg) {
+			n.messages <- messages{message.Data, message.Ack()}
+		})
+		return nil
+	}
+	n.conn.Subscribe(subject+".all", func(message *nats.Msg) {
+		n.messages <- messages{message.Data, nil}
 	})
 	return nil
 }
@@ -60,7 +79,8 @@ func (n *Peer) Subscribe() error {
 // Recv returns a single message consumed by the peer. Subscribe must be called
 // before this. It returns an error if the receive failed.
 func (n *Peer) Recv() ([]byte, error) {
-	return <-n.messages, nil
+	m := <-n.messages
+	return m.message, m.err
 }
 
 // Send returns a channel on which messages can be sent for publishing.
@@ -95,22 +115,19 @@ func (n *Peer) Setup() {
 }
 
 func (n *Peer) sendMessage(message []byte) error {
-	// Check if we are behind by >= 1MB bytes.
-	bytesDeltaOver := n.conn.OutBytes-n.conn.InBytes >= maxBytesBehind
-
-	// Check if we are behind by >= 65k msgs.
-	msgsDeltaOver := n.conn.OutMsgs-n.conn.InMsgs >= maxMsgsBehind
-
-	// If we are behind on either condition, sleep a bit to catch up receiver.
-	if bytesDeltaOver || msgsDeltaOver {
-		time.Sleep(delay)
+	if n.js != nil {
+		_, err := n.js.PublishAsync(subject+".all", message)
+		return err
 	}
 
-	return n.conn.Publish(subject, message)
+	return n.conn.Publish(subject+".all", message)
 }
 
 // Teardown performs any cleanup logic that needs to be performed after the
 // test is complete.
 func (n *Peer) Teardown() {
+	if n.js != nil {
+		n.js.DeleteStream(subject)
+	}
 	n.conn.Close()
 }

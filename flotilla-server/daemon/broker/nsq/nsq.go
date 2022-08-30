@@ -1,7 +1,7 @@
 package nsq
 
 import (
-	"github.com/bitly/go-nsq"
+	"github.com/nsqio/go-nsq"
 	"github.com/tylertreat/Flotilla/flotilla-server/daemon/broker"
 )
 

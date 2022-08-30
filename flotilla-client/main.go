@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
+
 	"github.com/tylertreat/Flotilla/flotilla-client/broker"
 )
 
@@ -30,12 +31,14 @@ const (
 var brokers = []string{
 	"beanstalkd",
 	"nats",
+	"natsjs",
 	"kafka",
 	"kestrel",
 	"activemq",
 	"rabbitmq",
 	"nsq",
 	"pubsub",
+	"centrifugo",
 }
 
 func main() {
